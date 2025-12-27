@@ -18,6 +18,7 @@
    +----------------------------------------------------------------------+
 */
 
+#include "zend_types.h"
 #define ZEND_INTENSIVE_DEBUGGING 0
 
 #include <stdio.h>
@@ -695,7 +696,11 @@ static ZEND_COLD void zend_verify_type_error_common(
 		*fclass = "";
 	}
 
-	*need_msg = zend_type_to_string_resolved(arg_info->type, zf->common.scope);
+	if (arg_info->generic_type && arg_info->generic_type->is_initialized) {
+		*need_msg = zend_type_to_string_resolved(arg_info->generic_type->type, zf->common.scope);
+	} else {
+		*need_msg = zend_type_to_string_resolved(arg_info->type, zf->common.scope);
+	}
 
 	if (value) {
 		*given_kind = zend_zval_value_name(value);
@@ -1240,15 +1245,38 @@ ZEND_API bool zend_check_user_type_slow(
 
 static zend_always_inline bool zend_verify_recv_arg_type(const zend_function *zf, uint32_t arg_num, zval *arg)
 {
-	const zend_arg_info *cur_arg_info;
+	zend_arg_info *cur_arg_info;
+	zend_generic_param *tparam;
 
 	ZEND_ASSERT(arg_num <= zf->common.num_args);
-	cur_arg_info = &zf->common.arg_info[arg_num-1];
 
-	if (ZEND_TYPE_IS_SET(cur_arg_info->type)
-			&& UNEXPECTED(!zend_check_type(&cur_arg_info->type, arg, zf->common.scope, false, false))) {
-		zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
-		return 0;
+	cur_arg_info = &zf->common.arg_info[arg_num-1];
+	tparam = cur_arg_info->generic_type;
+
+
+	if (ZEND_TYPE_IS_SET(cur_arg_info->type)) {
+		if (tparam) {
+			if (tparam->is_initialized) {
+				if (EXPECTED(zend_check_type(&tparam->type, arg, zf->common.scope, false, false))) {
+					return 1;
+				}
+
+				zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
+
+				return 0;
+			}
+
+			zend_type t = ZEND_TYPE_INIT_CODE(Z_TYPE_P(arg), 0, 0);
+			tparam->type = t;
+			tparam->is_initialized = true;
+
+			return 1;
+		}
+
+		if (UNEXPECTED(!zend_check_type(&cur_arg_info->type, arg, zf->common.scope, false, false))) {
+			zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
+			return 0;
+		}
 	}
 
 	return 1;

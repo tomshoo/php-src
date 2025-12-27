@@ -20,14 +20,17 @@
 
 #include <zend_language_parser.h>
 #include "zend.h"
+#include "zend_alloc.h"
 #include "zend_ast.h"
 #include "zend_attributes.h"
 #include "zend_compile.h"
 #include "zend_constants.h"
+#include "zend_hash.h"
 #include "zend_llist.h"
 #include "zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_interfaces.h"
+#include "zend_string.h"
 #include "zend_types.h"
 #include "zend_virtual_cwd.h"
 #include "zend_multibyte.h"
@@ -7808,12 +7811,33 @@ static bool zend_property_is_virtual(const zend_class_entry *ce, const zend_stri
 	return is_virtual;
 }
 
-static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32_t fallback_return_type) /* {{{ */
+static void zend_compile_params(zend_ast *ast, zend_ast *template_ast, zend_ast *return_type_ast, uint32_t fallback_return_type) /* {{{ */
 {
 	zend_ast_list *list = zend_ast_get_list(ast);
+	zend_ast_list *template_list = NULL;
 	uint32_t i;
 	zend_op_array *op_array = CG(active_op_array);
 	zend_arg_info *arg_infos;
+	HashTable *tlookup;
+
+	op_array->generic_params = NULL;
+
+	if (template_ast) {
+		template_list = zend_ast_get_list(template_ast);
+		op_array->generic_params = safe_emalloc(template_list->children , sizeof(zend_generic_param), 0);
+	}
+
+	ALLOC_HASHTABLE(tlookup);
+	zend_hash_init(tlookup, template_list ? template_list->children : 0, NULL, NULL, 0 );
+
+	if (template_list) {
+		for (int i = 0; i < template_list->children; i++) {
+			zend_string *tparam = zend_ast_get_str(template_list->child[i]);
+			op_array->generic_params[i].is_initialized = false;
+
+			zend_hash_add_ptr(tlookup, tparam, op_array->generic_params + i);
+		}
+	}
 
 	if (return_type_ast || fallback_return_type) {
 		/* Use op_array->arg_info[-1] for return type */
@@ -7939,6 +7963,17 @@ static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32
 
 			op_array->fn_flags |= ZEND_ACC_HAS_TYPE_HINTS;
 			arg_info->type = zend_compile_typename_ex(type_ast, force_nullable, &forced_allow_nullable);
+
+			zend_string *tname = zend_type_to_string(arg_info->type);
+
+			if (zend_hash_exists(tlookup, tname)) {
+				arg_info->generic_type = zend_hash_find_ptr(tlookup, tname);
+			} else {
+				arg_info->generic_type = NULL;
+			}
+
+			zend_string_release(tname);
+
 			if (forced_allow_nullable) {
 				zend_string *func_name = get_function_or_method_name((zend_function *) op_array);
 				zend_error(E_DEPRECATED,
@@ -8114,6 +8149,10 @@ static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32
 		opline->extended_value = zend_alloc_cache_slots(3);
 		zend_emit_op_data(&value_node);
 	}
+
+	zend_hash_destroy(tlookup);
+
+	FREE_HASHTABLE(tlookup);
 }
 /* }}} */
 
@@ -8537,6 +8576,7 @@ static zend_op_array *zend_compile_func_decl_ex(
 	zend_ast *uses_ast = decl->child[1];
 	zend_ast *stmt_ast = decl->child[2];
 	zend_ast *return_type_ast = decl->child[3];
+	zend_ast *template_ast = decl->child[5];
 	bool is_method = decl->kind == ZEND_AST_METHOD;
 	zend_string *lcname = NULL;
 	bool is_hook = decl->kind == ZEND_AST_PROPERTY_HOOK;
@@ -8639,7 +8679,7 @@ static zend_op_array *zend_compile_func_decl_ex(
 		zend_stack_push(&CG(loop_var_stack), (void *) &dummy_var);
 	}
 
-	zend_compile_params(params_ast, return_type_ast,
+	zend_compile_params(params_ast, template_ast, return_type_ast,
 		is_method && zend_string_equals_literal(lcname, ZEND_TOSTRING_FUNC_NAME) ? IS_STRING : 0);
 	if (CG(active_op_array)->fn_flags & ZEND_ACC_GENERATOR) {
 		zend_mark_function_as_generator();

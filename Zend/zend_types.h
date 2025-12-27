@@ -386,6 +386,11 @@ struct _zend_string {
 	char              val[1];
 };
 
+typedef struct _zend_generic_param {
+	zend_type type;
+	bool      is_initialized;
+} zend_generic_param;
+
 typedef struct _Bucket {
 	zval              val;
 	zend_ulong        h;                /* hash value (or numeric index)   */
