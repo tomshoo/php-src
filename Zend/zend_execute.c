@@ -18,6 +18,7 @@
    +----------------------------------------------------------------------+
 */
 
+#include "zend_generics.h"
 #include "zend_types.h"
 #define ZEND_INTENSIVE_DEBUGGING 0
 
@@ -696,8 +697,8 @@ static ZEND_COLD void zend_verify_type_error_common(
 		*fclass = "";
 	}
 
-	if (arg_info->generic_type && arg_info->generic_type->is_initialized) {
-		*need_msg = zend_type_to_string_resolved(arg_info->generic_type->type, zf->common.scope);
+	if (arg_info->generic && arg_info->generic->initialized) {
+		*need_msg = zend_type_to_string_resolved(arg_info->generic->type, zf->common.scope);
 	} else {
 		*need_msg = zend_type_to_string_resolved(arg_info->type, zf->common.scope);
 	}
@@ -1243,32 +1244,36 @@ ZEND_API bool zend_check_user_type_slow(
 		type, arg, ref, is_return_type, /* is_internal */ false);
 }
 
+
+static zend_always_inline void zend_prepare_generics_list(zend_function* zf)
+{
+	zend_generic_list* generics = zf->op_array.generic_params;
+	ZEND_ASSERT(generics);
+
+	zend_de_initialize_generics_list(zf->op_array.generic_params);
+}
+
 static zend_always_inline bool zend_verify_recv_arg_type(const zend_function *zf, uint32_t arg_num, zval *arg)
 {
 	zend_arg_info *cur_arg_info;
-	zend_generic_param *tparam;
+	zend_generic *tparam;
 
 	ZEND_ASSERT(arg_num <= zf->common.num_args);
 
 	cur_arg_info = &zf->common.arg_info[arg_num-1];
-	tparam = cur_arg_info->generic_type;
-
+	tparam = cur_arg_info->generic;
 
 	if (ZEND_TYPE_IS_SET(cur_arg_info->type)) {
 		if (tparam) {
-			if (tparam->is_initialized) {
-				if (EXPECTED(zend_check_type(&tparam->type, arg, zf->common.scope, false, false))) {
-					return 1;
-				}
-
-				zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
-
-				return 0;
+			if (!tparam->initialized) {
+				zend_initialize_generic_type(tparam, arg);
+				return 1;
 			}
 
-			zend_type t = ZEND_TYPE_INIT_CODE(Z_TYPE_P(arg), 0, 0);
-			tparam->type = t;
-			tparam->is_initialized = true;
+			if (UNEXPECTED(!zend_check_type(&tparam->type, arg, zf->common.scope, false, false))) {
+				zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
+				return 0;
+			}
 
 			return 1;
 		}

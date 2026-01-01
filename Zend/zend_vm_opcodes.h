@@ -330,7 +330,8 @@ END_EXTERN_C()
 #define ZEND_JMP_FRAMELESS                  208
 #define ZEND_INIT_PARENT_PROPERTY_HOOK_CALL 209
 #define ZEND_DECLARE_ATTRIBUTED_CONST       210
+#define ZEND_INITIALIZE_GENERICS_LIST       211
 
-#define ZEND_VM_LAST_OPCODE                 210
+#define ZEND_VM_LAST_OPCODE                 211
 
 #endif

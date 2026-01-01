@@ -21,6 +21,7 @@
 #define ZEND_COMPILE_H
 
 #include "zend_ast.h"
+#include "zend_generics.h"
 #include "zend_types.h"
 #include "zend_map_ptr.h"
 #include "zend_alloc.h"
@@ -508,7 +509,7 @@ typedef struct _zend_internal_arg_info {
 typedef struct _zend_arg_info {
 	zend_string *name;
 	zend_type type;
-	zend_generic_param *generic_type;
+	zend_generic *generic;
 	zend_string *default_value;
 } zend_arg_info;
 
@@ -569,7 +570,7 @@ struct _zend_op_array {
 	/* Functions that are declared dynamically are stored here and
 	 * referenced by index from opcodes. */
 	zend_op_array **dynamic_func_defs;
-	zend_generic_param *generic_params;
+	zend_generic_list *generic_params;
 
 	void *reserved[ZEND_MAX_RESERVED_RESOURCES];
 };

@@ -97,6 +97,8 @@ void init_op_array(zend_op_array *op_array, uint8_t type, int initial_ops_size)
 
 	memset(op_array->reserved, 0, ZEND_MAX_RESERVED_RESOURCES * sizeof(void*));
 
+	op_array->generic_params = NULL;
+
 	if (zend_extension_flags & ZEND_EXTENSIONS_HAVE_OP_ARRAY_CTOR) {
 		zend_llist_apply_with_argument(&zend_extensions, (llist_apply_with_arg_func_t) zend_extension_op_array_ctor_handler, op_array);
 	}
