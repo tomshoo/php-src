@@ -1283,6 +1283,23 @@ static zend_always_inline bool zend_verify_variadic_arg_type(
 		const zend_function *zf, const zend_arg_info *arg_info, uint32_t arg_num, zval *arg)
 {
 	ZEND_ASSERT(ZEND_TYPE_IS_SET(arg_info->type));
+
+	zend_generic* generic = arg_info->generic;
+
+	if (UNEXPECTED(generic)) {
+		if (!generic->initialized) {
+			zend_initialize_generic_type(generic, arg);
+			return 1;
+		}
+
+		if (UNEXPECTED(!zend_check_type(&generic->type, arg, zf->common.scope, false, false))) {
+			zend_verify_arg_error(zf, arg_info, arg_num, arg);
+			return 0;
+		}
+
+		return 1;
+	}
+
 	if (UNEXPECTED(!zend_check_type(&arg_info->type, arg, zf->common.scope, false, false))) {
 		zend_verify_arg_error(zf, arg_info, arg_num, arg);
 		return 0;
@@ -5166,6 +5183,10 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 		called_scope = NULL;
 	}
 
+	if (UNEXPECTED(fbc->type == ZEND_USER_FUNCTION && fbc->op_array.generic_params)) {
+		zend_de_initialize_generics_list(fbc->op_array.generic_params);
+	}
+
 	return zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_DYNAMIC,
 		fbc, num_args, called_scope);
 }
@@ -5208,6 +5229,10 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_object(zend_o
 
 	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 		init_func_run_time_cache(&fbc->op_array);
+	}
+
+	if (UNEXPECTED(fbc->type == ZEND_USER_FUNCTION && fbc->op_array.generic_params)) {
+		zend_de_initialize_generics_list(fbc->op_array.generic_params);
 	}
 
 	return zend_vm_stack_push_call_frame(call_info,
@@ -5297,6 +5322,10 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_array(zend_ar
 
 	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 		init_func_run_time_cache(&fbc->op_array);
+	}
+
+	if (UNEXPECTED(fbc->type == ZEND_USER_FUNCTION && fbc->op_array.generic_params)) {
+		zend_de_initialize_generics_list(fbc->op_array.generic_params);
 	}
 
 	return zend_vm_stack_push_call_frame(call_info,
