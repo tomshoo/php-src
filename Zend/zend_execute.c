@@ -1203,6 +1203,7 @@ static zend_always_inline bool zend_check_type_slow(
 		/* We cannot have conversions for typed refs. */
 		return 0;
 	}
+
 	if (is_internal && is_return_type) {
 		/* For internal returns, the type has to match exactly, because we're not
 		 * going to check it for non-debug builds, and there will be no chance to

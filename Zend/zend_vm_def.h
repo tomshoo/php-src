@@ -4438,7 +4438,21 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
+		zend_generic *generic = ret_info->generic;
+		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = GET_OP1_ZVAL_PTR_UNDEF(BP_VAR_R);
+
+		if (UNEXPECTED(generic && !generic->initialized)) {
+			zend_string *tname = zend_type_to_string(ret_info->type);
+			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
+			zend_string_release(tname);
+
+			HANDLE_EXCEPTION();
+		}
+
+		if (UNEXPECTED(generic && generic->initialized)) {
+			type = &generic->type;
+		}
 
 		if (OP1_TYPE == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
@@ -4452,7 +4466,7 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
 			ZVAL_DEREF(retval_ptr);
 		}
 
-		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
+		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(*type, Z_TYPE_P(retval_ptr)))) {
 			ZEND_VM_NEXT_OPCODE();
 		}
 
@@ -4484,10 +4498,12 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
 		}
 
 		SAVE_OPLINE();
-		if (UNEXPECTED(!zend_check_type_slow(&ret_info->type, retval_ptr, ref, 1, 0))) {
+
+		if (UNEXPECTED(!zend_check_type_slow(type, retval_ptr, ref, 1, 0))) {
 			zend_verify_return_error(EX(func), retval_ptr);
 			HANDLE_EXCEPTION();
 		}
+
 		ZEND_VM_NEXT_OPCODE();
 #endif
 	}

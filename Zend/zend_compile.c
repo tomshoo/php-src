@@ -7823,8 +7823,17 @@ static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32
 		/* Use op_array->arg_info[-1] for return type */
 		arg_infos = safe_emalloc(sizeof(zend_arg_info), list->children + 1, 0);
 		arg_infos->name = NULL;
+		arg_infos->generic = NULL;
 		if (return_type_ast) {
 			arg_infos->type = zend_compile_typename(return_type_ast);
+			zend_string *typename = zend_type_to_string(arg_infos->type);
+
+			if (zend_hash_exists(tlookup, typename)) {
+				arg_infos->generic = zend_hash_find_ptr(tlookup, typename);
+			}
+
+			zend_string_release(typename);
+
 			ZEND_TYPE_FULL_MASK(arg_infos->type) |= _ZEND_ARG_INFO_FLAGS(
 				(op_array->fn_flags & ZEND_ACC_RETURN_REFERENCE) != 0, /* is_variadic */ 0, /* is_tentative */ 0);
 		} else {
