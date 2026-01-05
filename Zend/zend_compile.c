@@ -8684,11 +8684,6 @@ static zend_op_array *zend_compile_func_decl_ex(
 		zend_stack_push(&CG(loop_var_stack), (void *) &dummy_var);
 	}
 
-
-	if (op_array->generic_params) {
-		zend_emit_op(NULL, ZEND_INITIALIZE_GENERICS_LIST, NULL, NULL);
-	}
-
 	zend_compile_params(params_ast, return_type_ast,
 		is_method && zend_string_equals_literal(lcname, ZEND_TOSTRING_FUNC_NAME) ? IS_STRING : 0, generics_lut);
 

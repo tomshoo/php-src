@@ -4072,6 +4072,10 @@ ZEND_VM_HOT_HANDLER(61, ZEND_INIT_FCALL, NUM, CONST, NUM|CACHE_SLOT)
 		CACHE_PTR(opline->result.num, fbc);
 	}
 
+	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && fbc->op_array.generic_params) {
+		zend_de_initialize_generics_list(fbc->op_array.generic_params);
+	}
+
 	call = _zend_vm_stack_push_call_frame_ex(
 		opline->op1.num, ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
@@ -5727,13 +5731,6 @@ ZEND_VM_HOT_TYPE_SPEC_HANDLER(ZEND_RECV, op->op2.num == MAY_BE_ANY, ZEND_RECV_NO
 	if (UNEXPECTED(arg_num > EX_NUM_ARGS())) {
 		ZEND_VM_DISPATCH_TO_HELPER(zend_missing_arg_helper);
 	}
-
-	ZEND_VM_NEXT_OPCODE();
-}
-
-ZEND_VM_INLINE_HANDLER(211, ZEND_INITIALIZE_GENERICS_LIST, UNUSED, UNUSED)
-{
-	zend_prepare_generics_list(EX(func));
 
 	ZEND_VM_NEXT_OPCODE();
 }

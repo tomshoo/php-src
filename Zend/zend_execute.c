@@ -1245,15 +1245,6 @@ ZEND_API bool zend_check_user_type_slow(
 		type, arg, ref, is_return_type, /* is_internal */ false);
 }
 
-
-static zend_always_inline void zend_prepare_generics_list(zend_function* zf)
-{
-	zend_generic_list* generics = zf->op_array.generic_params;
-	ZEND_ASSERT(generics);
-
-	zend_de_initialize_generics_list(zf->op_array.generic_params);
-}
-
 static zend_always_inline bool zend_verify_recv_arg_type(const zend_function *zf, uint32_t arg_num, zval *arg)
 {
 	zend_arg_info *cur_arg_info;

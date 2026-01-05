@@ -797,7 +797,7 @@ parameter_list:
 
 optional_template_parameter_list:
 		'<' template_parameter_list '>' { $$ = $2; }
-	|	%empty { $$ = zend_ast_create_list(0, ZEND_AST_TEMPLATE_PARAMETER_LIST); }
+	|	%empty { $$ = NULL; }
 ;
 
 template_parameter_list:
