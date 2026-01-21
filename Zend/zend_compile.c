@@ -1455,6 +1455,10 @@ zend_string *zend_type_to_string_resolved(const zend_type type, zend_class_entry
 
 	uint32_t type_mask = ZEND_TYPE_PURE_MASK(type);
 
+	if (ZEND_TYPE_IS_GENERIC(type)) {
+		return str;
+	}
+
 	if (type_mask == MAY_BE_ANY) {
 		str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_MIXED), /* is_intersection */ false);
 
@@ -2664,14 +2668,16 @@ static void zend_emit_return_type_check(
 			}
 		}
 
-		if (expr && ZEND_TYPE_PURE_MASK(type) == MAY_BE_ANY) {
-			/* we don't need run-time check for mixed return type */
-			return;
-		}
+		if (!ZEND_TYPE_IS_GENERIC(type)) {
+			if (expr && ZEND_TYPE_PURE_MASK(type) == MAY_BE_ANY) {
+				/* we don't need run-time check for mixed return type */
+				return;
+			}
 
-		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
-			/* we don't need run-time check */
-			return;
+			if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
+				/* we don't need run-time check */
+				return;
+			}
 		}
 
 		opline = zend_emit_op(NULL, ZEND_VERIFY_RETURN_TYPE, expr, NULL);

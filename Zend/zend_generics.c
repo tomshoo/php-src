@@ -20,6 +20,7 @@
 #include "zend_generics.h"
 #include "zend_alloc.h"
 #include "zend_compile.h"
+#include "zend_list.h"
 #include "zend_portability.h"
 #include "zend_string.h"
 #include "zend_type_info.h"
@@ -36,6 +37,7 @@ ZEND_API zend_generic_list *zend_create_generic_list(size_t nmemb, bool persista
 	zend_generic_list *list = pemalloc(sizeof(zend_generic_list) + (sizeof(zend_generic) * nmemb - 1), persistant);
 
 	list->children = nmemb;
+	list->is_persistant = persistant;
 
 	for (int i = 0; i < list->children; i ++)
 	{
@@ -52,13 +54,18 @@ ZEND_API void zend_initialize_generic_type(zend_generic* generic, const zval *zv
 	uint8_t type_code = Z_TYPE_P(zval);
 	zend_type type = ZEND_TYPE_INIT_CODE(type_code, 0, 0);
 
-	if (EXPECTED(Z_TYPE_P(zval) == IS_OBJECT)) {
+	if (type_code == IS_OBJECT) {
 		zend_class_entry *ce = Z_OBJCE_P(zval);
 		zend_string* name = ce->name;
 
 		zend_string_addref(ce->name);
 
 		type = (zend_type) ZEND_TYPE_INIT_CLASS(name, false, 0);
+	} else if (type_code == IS_RESOURCE) {
+		const char *name = zend_rsrc_list_get_rsrc_type(Z_RES_P(zval));
+
+		zend_error(E_ERROR, "Resource type '%s' cannot be used with generic types", name);
+		return;
 	}
 
 	generic->type = type;

@@ -2968,7 +2968,7 @@ ZEND_VM_HOT_HELPER(zend_leave_helper, ANY, ANY)
 #endif
 
 	if (UNEXPECTED(EX(generics))) {
-		efree(EX(generics));
+		pefree(EX(generics), EX(generics)->is_persistant);
 	}
 
 	if (EXPECTED((call_info & (ZEND_CALL_CODE|ZEND_CALL_TOP|ZEND_CALL_HAS_SYMBOL_TABLE|ZEND_CALL_FREE_EXTRA_ARGS|ZEND_CALL_ALLOCATED|ZEND_CALL_HAS_EXTRA_NAMED_PARAMS)) == 0)) {
@@ -3892,6 +3892,11 @@ ZEND_VM_HOT_HANDLER(59, ZEND_INIT_FCALL_BY_NAME, ANY, CONST, NUM|CACHE_SLOT)
 	}
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
+
+	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
+		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -4452,15 +4457,18 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
 		zend_generic_list *generics = EX(generics);
 
 		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			SAVE_OPLINE();
 			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
 			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
 			zend_generic *generic = &generics->child[location];
 
 			if (! generic->initialized) {
-				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
-						ZSTR_VAL(get_function_or_method_name(EX(func))),
-						ZSTR_VAL(zend_type_to_string(generic->type)));
+				zend_error(E_ERROR, "%s(): Uninitialized generic %s used in return annotation.",
+						ZSTR_VAL(EX(func)->common.function_name),
+						ZSTR_VAL(zend_type_to_string(*type)));
+
+				HANDLE_EXCEPTION();
 			} else {
 				type = &generic->type;
 			}

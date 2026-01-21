@@ -29,6 +29,7 @@ typedef struct _zend_generic {
 typedef struct _zend_generic_list {
 	size_t children;
 	zend_generic child[1];
+	bool is_persistant;
 } zend_generic_list;
 
 /* Creates a new template generic parameter list */
