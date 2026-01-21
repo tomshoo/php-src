@@ -25,6 +25,7 @@
 #include "zend_compile.h"
 #include "zend_extensions.h"
 #include "zend_API.h"
+#include "zend_hash.h"
 #include "zend_sort.h"
 #include "zend_constants.h"
 #include "zend_observer.h"
@@ -662,6 +663,11 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 			destroy_op_array(op_array->dynamic_func_defs[i]);
 		}
 		efree(op_array->dynamic_func_defs);
+	}
+
+	if (op_array->generic_params) {
+		zend_hash_destroy(op_array->generic_params);
+		FREE_HASHTABLE(op_array->generic_params);
 	}
 }
 

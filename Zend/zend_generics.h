@@ -37,6 +37,4 @@ ZEND_API zend_generic_list *zend_create_generic_list(size_t nmemb, bool persista
 /* Guess the type of zval and initialize generic type */
 ZEND_API void zend_initialize_generic_type(zend_generic *generic, const zval *zval);
 
-ZEND_API void zend_de_initialize_generics_list(zend_generic_list* generics);
-
 #endif

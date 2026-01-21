@@ -232,6 +232,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token T_END_HEREDOC     "heredoc end"
 %token T_DOLLAR_OPEN_CURLY_BRACES "'${'"
 %token T_CURLY_OPEN      "'{$'"
+%token T_TYPE_LIST_BEGIN "'::<'"
 %token T_PAAMAYIM_NEKUDOTAYIM "'::'"
 %token T_NS_SEPARATOR    "'\\'"
 %token T_ELLIPSIS        "'...'"
@@ -251,7 +252,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 /* Token used to force a parse error from the lexer */
 %token T_ERROR
 
-%type <ast> optional_template_parameter_list template_parameter_list non_empty_template_parameter_list
+%type <ast> optional_type_list type_list optional_template_parameter_list template_parameter_list non_empty_template_parameter_list
 %type <ast> top_statement namespace_name name statement function_declaration_statement
 %type <ast> class_declaration_statement trait_declaration_statement legacy_namespace_name
 %type <ast> interface_declaration_statement interface_extends_list
@@ -604,11 +605,11 @@ is_variadic:
 
 class_declaration_statement:
 		class_modifiers T_CLASS { $<num>$ = CG(zend_lineno); }
-		T_STRING extends_from implements_list backup_doc_comment '{' class_statement_list '}'
-			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, $1, $<num>3, $7, zend_ast_get_str($4), $5, $6, $9, NULL, NULL, NULL); }
+		T_STRING optional_template_parameter_list extends_from implements_list backup_doc_comment '{' class_statement_list '}'
+			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, $1, $<num>3, $8, zend_ast_get_str($4), $6, $7, $10, NULL, NULL, $5); }
 	|	T_CLASS { $<num>$ = CG(zend_lineno); }
-		T_STRING extends_from implements_list backup_doc_comment '{' class_statement_list '}'
-			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, 0, $<num>2, $6, zend_ast_get_str($3), $4, $5, $8, NULL, NULL, NULL); }
+		T_STRING optional_template_parameter_list extends_from implements_list backup_doc_comment '{' class_statement_list '}'
+			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, 0, $<num>2, $7, zend_ast_get_str($3), $5, $6, $9, NULL, NULL, $4); }
 ;
 
 class_modifiers:
@@ -793,6 +794,18 @@ alt_if_stmt:
 parameter_list:
 		non_empty_parameter_list possible_comma { $$ = $1; }
 	|	%empty	{ $$ = zend_ast_create_list(0, ZEND_AST_PARAM_LIST); }
+;
+
+optional_type_list:
+		%empty { $$ = NULL; }
+	|	T_TYPE_LIST_BEGIN type_list '>' { $$ = $2; }
+;
+
+type_list:
+		type_expr_without_static
+			{ $$ = zend_ast_create_list(1, ZEND_AST_TYPE_LIST, $1); }
+	| type_list ',' type_expr_without_static
+		{ $$ = zend_ast_list_add($1, $3); }
 ;
 
 optional_template_parameter_list:
@@ -1480,7 +1493,7 @@ class_name:
 		T_STATIC
 			{ zval zv; ZVAL_INTERNED_STR(&zv, ZSTR_KNOWN(ZEND_STR_STATIC));
 			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ); }
-	|	name { $$ = $1; }
+	| name optional_type_list { $$ = $1; }
 ;
 
 class_name_reference:

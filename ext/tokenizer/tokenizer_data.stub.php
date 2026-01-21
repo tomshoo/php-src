@@ -714,6 +714,11 @@ const T_DOLLAR_OPEN_CURLY_BRACES = UNKNOWN;
 const T_CURLY_OPEN = UNKNOWN;
 /**
  * @var int
+ * @cvalue T_TYPE_LIST_BEGIN
+ */
+const T_TYPE_LIST_BEGIN = UNKNOWN;
+/**
+ * @var int
  * @cvalue T_PAAMAYIM_NEKUDOTAYIM
  */
 const T_PAAMAYIM_NEKUDOTAYIM = UNKNOWN;

@@ -7166,6 +7166,9 @@ ZEND_API void zend_set_function_arg_flags(zend_function *func) /* {{{ */
 static zend_type zend_compile_single_typename(zend_ast *ast)
 {
 	ZEND_ASSERT(!(ast->attr & ZEND_TYPE_NULLABLE));
+
+	zend_op_array *op_array = CG(active_op_array);
+
 	if (ast->kind == ZEND_AST_TYPE) {
 		if (ast->attr == IS_STATIC && !CG(active_class_entry) && zend_is_scope_known()) {
 			zend_error_noreturn(E_COMPILE_ERROR,
@@ -7176,11 +7179,18 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
 	} else {
 		zend_string *type_name = zend_ast_get_str(ast);
 		uint8_t type_code = zend_lookup_builtin_type_by_name(type_name);
+		bool is_func_generic = op_array->generic_params && zend_hash_exists(op_array->generic_params, type_name);
 
 		if (type_code != 0) {
 			if ((ast->attr & ZEND_NAME_NOT_FQ) != ZEND_NAME_NOT_FQ) {
 				zend_error_noreturn(E_COMPILE_ERROR,
 					"Type declaration '%s' must be unqualified",
+					ZSTR_VAL(zend_string_tolower(type_name)));
+			}
+
+			if (is_func_generic) {
+				zend_error_noreturn(E_COMPILE_ERROR,
+					"Builtin type '%s' conflicts with generic parameter of the same name",
 					ZSTR_VAL(zend_string_tolower(type_name)));
 			}
 
@@ -7193,6 +7203,13 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
 			}
 
 			return (zend_type) ZEND_TYPE_INIT_CODE(type_code, 0, 0);
+		} else if (is_func_generic) {
+			zval *location = zend_hash_find(op_array->generic_params, type_name);
+			zend_long l = Z_LVAL_P(location);
+
+			ZEND_ASSERT(l <= ZEND_TYPE_GENERIC_LOCATION_MASK && "Location value should never be greater than ZEND_TYPE_INIT_GENERIC_MASK");
+
+			return (zend_type) ZEND_TYPE_INIT_GENERIC_MASK(type_name, 0, l);
 		} else {
 			const char *correct_name;
 			uint32_t fetch_type = zend_get_class_fetch_type_ast(ast);
@@ -7812,7 +7829,7 @@ static bool zend_property_is_virtual(const zend_class_entry *ce, const zend_stri
 	return is_virtual;
 }
 
-static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32_t fallback_return_type, const HashTable *tlookup) /* {{{ */
+static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32_t fallback_return_type) /* {{{ */
 {
 	zend_ast_list *list = zend_ast_get_list(ast);
 	uint32_t i;
@@ -7823,16 +7840,8 @@ static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32
 		/* Use op_array->arg_info[-1] for return type */
 		arg_infos = safe_emalloc(sizeof(zend_arg_info), list->children + 1, 0);
 		arg_infos->name = NULL;
-		arg_infos->generic = NULL;
 		if (return_type_ast) {
 			arg_infos->type = zend_compile_typename(return_type_ast);
-			zend_string *typename = zend_type_to_string(arg_infos->type);
-
-			if (zend_hash_exists(tlookup, typename)) {
-				arg_infos->generic = zend_hash_find_ptr(tlookup, typename);
-			}
-
-			zend_string_release(typename);
 
 			ZEND_TYPE_FULL_MASK(arg_infos->type) |= _ZEND_ARG_INFO_FLAGS(
 				(op_array->fn_flags & ZEND_ACC_RETURN_REFERENCE) != 0, /* is_variadic */ 0, /* is_tentative */ 0);
@@ -7952,16 +7961,6 @@ static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32
 
 			op_array->fn_flags |= ZEND_ACC_HAS_TYPE_HINTS;
 			arg_info->type = zend_compile_typename_ex(type_ast, force_nullable, &forced_allow_nullable);
-
-			zend_string *tname = zend_type_to_string(arg_info->type);
-
-			if (zend_hash_exists(tlookup, tname)) {
-				arg_info->generic = zend_hash_find_ptr(tlookup, tname);
-			} else {
-				arg_info->generic = NULL;
-			}
-
-			zend_string_release(tname);
 
 			if (forced_allow_nullable) {
 				zend_string *func_name = get_function_or_method_name((zend_function *) op_array);
@@ -8571,7 +8570,6 @@ static zend_op_array *zend_compile_func_decl_ex(
 	zend_op_array *op_array = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
 	zend_oparray_context orig_oparray_context;
 	closure_info info;
-	HashTable *generics_lut;
 	zend_ast_list *generics = NULL;
 
 	if (template_ast) {
@@ -8580,16 +8578,22 @@ static zend_op_array *zend_compile_func_decl_ex(
 
 	init_op_array(op_array, ZEND_USER_FUNCTION, INITIAL_OP_ARRAY_SIZE);
 
-	ALLOC_HASHTABLE(generics_lut);
-	zend_hash_init(generics_lut, generics ? generics->children : 0, NULL, NULL, 0);
+	ALLOC_HASHTABLE(op_array->generic_params);
+	zend_hash_init(op_array->generic_params, generics ? generics->children : 0, NULL, ZVAL_PTR_DTOR, 0);
 
 	if (generics) {
-		op_array->generic_params = zend_create_generic_list(generics->children, true);
+		if (generics->children > ZEND_TYPE_GENERIC_LOCATION_MASK) {
+			zend_error_noreturn(E_COMPILE_ERROR,
+				"Number of generic types exceeds the maximum limit (%d)",
+				ZEND_TYPE_GENERIC_LOCATION_MASK);
+		}
 
 		for (int i = 0; i < generics->children; i++) {
 			zend_string* tname = zend_ast_get_str(generics->child[i]);
+			zval ref_location;
+			ZVAL_LONG(&ref_location, i);
 
-			zend_hash_add_ptr(generics_lut, tname, op_array->generic_params->child + i);
+			zend_hash_add(op_array->generic_params, tname, &ref_location);
 			zend_string_release(tname);
 		}
 	}
@@ -8685,10 +8689,7 @@ static zend_op_array *zend_compile_func_decl_ex(
 	}
 
 	zend_compile_params(params_ast, return_type_ast,
-		is_method && zend_string_equals_literal(lcname, ZEND_TOSTRING_FUNC_NAME) ? IS_STRING : 0, generics_lut);
-
-	zend_hash_destroy(generics_lut);
-	FREE_HASHTABLE(generics_lut);
+		is_method && zend_string_equals_literal(lcname, ZEND_TOSTRING_FUNC_NAME) ? IS_STRING : 0);
 
 	if (CG(active_op_array)->fn_flags & ZEND_ACC_GENERATOR) {
 		zend_mark_function_as_generator();

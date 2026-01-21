@@ -122,6 +122,7 @@ typedef struct {
 	 * are only supported since C++20). */
 	void *ptr;
 	uint32_t type_mask;
+	uint32_t generics_mask;
 	/* TODO: We could use the extra 32-bit of padding on 64-bit systems. */
 } zend_type;
 
@@ -151,8 +152,15 @@ typedef struct {
 /* Must have same value as MAY_BE_NULL */
 #define _ZEND_TYPE_NULLABLE_BIT 0x2u
 
+#define ZEND_TYPE_GENERIC_LOCATION_MASK ((1u << 4) - 1)
+#define _ZEND_TYPE_IS_GENERIC (1u << 5)
+#define _ZEND_TYPE_IS_OBJECT_GENERIC (1u << 6)
+
 #define ZEND_TYPE_IS_SET(t) \
 	(((t).type_mask & _ZEND_TYPE_MASK) != 0)
+
+#define ZEND_TYPE_IS_GENERIC(t) \
+	(((t).type_mask & _ZEND_TYPE_IS_GENERIC) != 0)
 
 /* If a type is complex it means it's either a list with a union or intersection,
  * or the void pointer is a class name */
@@ -287,10 +295,10 @@ typedef struct {
 #endif
 
 #define ZEND_TYPE_INIT_NONE(extra_flags) \
-	_ZEND_TYPE_PREFIX { NULL, (extra_flags) }
+	_ZEND_TYPE_PREFIX { NULL, (extra_flags), 0 }
 
 #define ZEND_TYPE_INIT_MASK(_type_mask) \
-	_ZEND_TYPE_PREFIX { NULL, (_type_mask) }
+	_ZEND_TYPE_PREFIX { NULL, (_type_mask), 0 }
 
 #define ZEND_TYPE_INIT_CODE(code, allow_null, extra_flags) \
 	ZEND_TYPE_INIT_MASK(((code) == _IS_BOOL ? MAY_BE_BOOL : ( (code) == IS_ITERABLE ? _ZEND_TYPE_ITERABLE_BIT : ((code) == IS_MIXED ? MAY_BE_ANY : (1 << (code))))) \
@@ -298,16 +306,22 @@ typedef struct {
 
 #define ZEND_TYPE_INIT_PTR(ptr, type_kind, allow_null, extra_flags) \
 	_ZEND_TYPE_PREFIX { (void *) (ptr), \
-		(type_kind) | ((allow_null) ? _ZEND_TYPE_NULLABLE_BIT : 0) | (extra_flags) }
+		(type_kind) | ((allow_null) ? _ZEND_TYPE_NULLABLE_BIT : 0) | (extra_flags), 0 }
 
 #define ZEND_TYPE_INIT_PTR_MASK(ptr, type_mask) \
-	_ZEND_TYPE_PREFIX { (void *) (ptr), (type_mask) }
+	_ZEND_TYPE_PREFIX { (void *) (ptr), (type_mask), 0 }
 
 #define ZEND_TYPE_INIT_UNION(ptr, extra_flags) \
-	_ZEND_TYPE_PREFIX { (void *) (ptr), (_ZEND_TYPE_LIST_BIT|_ZEND_TYPE_UNION_BIT) | (extra_flags) }
+	_ZEND_TYPE_PREFIX { (void *) (ptr), (_ZEND_TYPE_LIST_BIT|_ZEND_TYPE_UNION_BIT) | (extra_flags), 0 }
 
 #define ZEND_TYPE_INIT_INTERSECTION(ptr, extra_flags) \
-	_ZEND_TYPE_PREFIX { (void *) (ptr), (_ZEND_TYPE_LIST_BIT|_ZEND_TYPE_INTERSECTION_BIT) | (extra_flags) }
+	_ZEND_TYPE_PREFIX { (void *) (ptr), (_ZEND_TYPE_LIST_BIT|_ZEND_TYPE_INTERSECTION_BIT) | (extra_flags), 0 }
+
+#define ZEND_TYPE_INIT_GENERIC_MASK(ptr, is_class_generic, l) \
+	_ZEND_TYPE_PREFIX { (void *) ptr \
+		, (_ZEND_TYPE_NAME_BIT|MAY_BE_ANY) \
+		, (_ZEND_TYPE_IS_GENERIC|(is_class_generic ? _ZEND_TYPE_IS_OBJECT_GENERIC : 0|(l & ZEND_TYPE_GENERIC_LOCATION_MASK))) \
+	}
 
 #define ZEND_TYPE_INIT_CLASS(class_name, allow_null, extra_flags) \
 	ZEND_TYPE_INIT_PTR(class_name, _ZEND_TYPE_NAME_BIT, allow_null, extra_flags)

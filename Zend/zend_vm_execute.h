@@ -1190,6 +1190,10 @@ static zend_never_inline ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV 
 	SAVE_OPLINE();
 #endif
 
+	if (UNEXPECTED(EX(generics))) {
+		efree(EX(generics));
+	}
+
 	if (EXPECTED((call_info & (ZEND_CALL_CODE|ZEND_CALL_TOP|ZEND_CALL_HAS_SYMBOL_TABLE|ZEND_CALL_FREE_EXTRA_ARGS|ZEND_CALL_ALLOCATED|ZEND_CALL_HAS_EXTRA_NAMED_PARAMS)) == 0)) {
 		EG(current_execute_data) = EX(prev_execute_data);
 		i_free_compiled_variables(execute_data);
@@ -4178,13 +4182,14 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		CACHE_PTR(opline->result.num, fbc);
 	}
 
-	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && fbc->op_array.generic_params) {
-		zend_de_initialize_generics_list(fbc->op_array.generic_params);
-	}
-
 	call = _zend_vm_stack_push_call_frame_ex(
 		opline->op1.num, ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
+
+	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
+		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -4317,6 +4322,8 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_R
 	USE_OPLINE
 	uint32_t arg_num = opline->op1.num;
 	zval *param;
+	zend_function *fbc = EX(func);
+	zend_arg_info *cur_arg_info = &fbc->common.arg_info[arg_num - 1];
 
 	if (UNEXPECTED(arg_num > EX_NUM_ARGS())) {
 		ZEND_VM_TAIL_CALL(zend_missing_arg_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
@@ -4324,7 +4331,7 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_R
 
 	param = EX_VAR(opline->result.var);
 
-	if (UNEXPECTED(!(opline->op2.num & (1u << Z_TYPE_P(param))))) {
+	if (ZEND_TYPE_IS_GENERIC(cur_arg_info->type) || UNEXPECTED(!(opline->op2.num & (1u << Z_TYPE_P(param))))) {
 		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
 	}
 
@@ -11104,20 +11111,23 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = RT_CONSTANT(opline, opline->op1);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_CONST == IS_CONST) {
@@ -22096,20 +22106,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = _get_zval_ptr_tmp(opline->op1.var EXECUTE_DATA_CC);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_TMP_VAR == IS_CONST) {
@@ -30754,20 +30767,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = _get_zval_ptr_var(opline->op1.var EXECUTE_DATA_CC);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_VAR == IS_CONST) {
@@ -38768,20 +38784,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = NULL;
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_UNUSED == IS_CONST) {
@@ -51944,20 +51963,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = EX_VAR(opline->op1.var);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_CV == IS_CONST) {
@@ -57058,6 +57080,10 @@ static zend_never_inline ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV  zend
 	SAVE_OPLINE();
 #endif
 
+	if (UNEXPECTED(EX(generics))) {
+		efree(EX(generics));
+	}
+
 	if (EXPECTED((call_info & (ZEND_CALL_CODE|ZEND_CALL_TOP|ZEND_CALL_HAS_SYMBOL_TABLE|ZEND_CALL_FREE_EXTRA_ARGS|ZEND_CALL_ALLOCATED|ZEND_CALL_HAS_EXTRA_NAMED_PARAMS)) == 0)) {
 		EG(current_execute_data) = EX(prev_execute_data);
 		i_free_compiled_variables(execute_data);
@@ -59930,13 +59956,14 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		CACHE_PTR(opline->result.num, fbc);
 	}
 
-	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && fbc->op_array.generic_params) {
-		zend_de_initialize_generics_list(fbc->op_array.generic_params);
-	}
-
 	call = _zend_vm_stack_push_call_frame_ex(
 		opline->op1.num, ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
+
+	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
+		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -60069,6 +60096,8 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_RECV_S
 	USE_OPLINE
 	uint32_t arg_num = opline->op1.num;
 	zval *param;
+	zend_function *fbc = EX(func);
+	zend_arg_info *cur_arg_info = &fbc->common.arg_info[arg_num - 1];
 
 	if (UNEXPECTED(arg_num > EX_NUM_ARGS())) {
 		ZEND_VM_TAIL_CALL(zend_missing_arg_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
@@ -60076,7 +60105,7 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_RECV_S
 
 	param = EX_VAR(opline->result.var);
 
-	if (UNEXPECTED(!(opline->op2.num & (1u << Z_TYPE_P(param))))) {
+	if (ZEND_TYPE_IS_GENERIC(cur_arg_info->type) || UNEXPECTED(!(opline->op2.num & (1u << Z_TYPE_P(param))))) {
 		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
 	}
 
@@ -66754,20 +66783,23 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIF
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = RT_CONSTANT(opline, opline->op1);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_CONST == IS_CONST) {
@@ -77646,20 +77678,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = _get_zval_ptr_tmp(opline->op1.var EXECUTE_DATA_CC);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_TMP_VAR == IS_CONST) {
@@ -86304,20 +86339,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = _get_zval_ptr_var(opline->op1.var EXECUTE_DATA_CC);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_VAR == IS_CONST) {
@@ -94318,20 +94356,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = NULL;
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_UNUSED == IS_CONST) {
@@ -107392,20 +107433,23 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		USE_OPLINE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
-		zend_generic *generic = ret_info->generic;
 		zend_type *type = &ret_info->type;
 		retval_ref = retval_ptr = EX_VAR(opline->op1.var);
+		zend_generic_list *generics = EX(generics);
 
-		if (UNEXPECTED(generic && !generic->initialized)) {
-			zend_string *tname = zend_type_to_string(ret_info->type);
-			zend_error(E_ERROR, "Generic type %s is unused in parameter list, cannot infer type at return", ZSTR_VAL(tname));
-			zend_string_release(tname);
+		if (ZEND_TYPE_IS_GENERIC(*type)) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
 
-			HANDLE_EXCEPTION();
-		}
+			size_t location = type->generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
 
-		if (UNEXPECTED(generic && generic->initialized)) {
-			type = &generic->type;
+			if (! generic->initialized) {
+				zend_type_error("%s(): generic type %s must be initialized before using it as a return type.",
+						ZSTR_VAL(get_function_or_method_name(EX(func))),
+						ZSTR_VAL(zend_type_to_string(generic->type)));
+			} else {
+				type = &generic->type;
+			}
 		}
 
 		if (IS_CV == IS_CONST) {
@@ -116460,6 +116504,10 @@ zend_leave_helper_SPEC_LABEL:
 	/* zend_leave_helper may be called with opline=call_leave_op in TAILCALL VM */
 	SAVE_OPLINE();
 #endif
+
+	if (UNEXPECTED(EX(generics))) {
+		efree(EX(generics));
+	}
 
 	if (EXPECTED((call_info & (ZEND_CALL_CODE|ZEND_CALL_TOP|ZEND_CALL_HAS_SYMBOL_TABLE|ZEND_CALL_FREE_EXTRA_ARGS|ZEND_CALL_ALLOCATED|ZEND_CALL_HAS_EXTRA_NAMED_PARAMS)) == 0)) {
 		EG(current_execute_data) = EX(prev_execute_data);

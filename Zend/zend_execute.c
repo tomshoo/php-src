@@ -697,11 +697,20 @@ static ZEND_COLD void zend_verify_type_error_common(
 		*fclass = "";
 	}
 
-	if (arg_info->generic && arg_info->generic->initialized) {
-		*need_msg = zend_type_to_string_resolved(arg_info->generic->type, zf->common.scope);
+	if (ZEND_TYPE_IS_GENERIC(arg_info->type)) {
+		zend_generic_list *generics = EX(generics);
+		ZEND_ASSERT(generics && "Generic list must exist if dealing with generic parameter types");
+
+		size_t location = arg_info->type.generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+		zend_generic *generic = &generics->child[location];
+
+		ZEND_ASSERT(generic->initialized && "Generic type must be initialized");
+
+		*need_msg = zend_type_to_string_resolved(generic->type, zf->common.scope);
 	} else {
 		*need_msg = zend_type_to_string_resolved(arg_info->type, zf->common.scope);
 	}
+
 
 	if (value) {
 		*given_kind = zend_zval_value_name(value);
@@ -1248,29 +1257,30 @@ ZEND_API bool zend_check_user_type_slow(
 static zend_always_inline bool zend_verify_recv_arg_type(const zend_function *zf, uint32_t arg_num, zval *arg)
 {
 	zend_arg_info *cur_arg_info;
-	zend_generic *tparam;
+	zend_generic_list *generics = EX(generics);
 
 	ZEND_ASSERT(arg_num <= zf->common.num_args);
 
 	cur_arg_info = &zf->common.arg_info[arg_num-1];
-	tparam = cur_arg_info->generic;
 
 	if (ZEND_TYPE_IS_SET(cur_arg_info->type)) {
-		if (tparam) {
-			if (!tparam->initialized) {
-				zend_initialize_generic_type(tparam, arg);
-				return 1;
+		if (UNEXPECTED(ZEND_TYPE_IS_GENERIC(cur_arg_info->type))) {
+			ZEND_ASSERT(generics && "Generics should be available if type info itself is generic");
+
+			size_t location = cur_arg_info->type.generics_mask & ZEND_TYPE_GENERIC_LOCATION_MASK;
+			zend_generic *generic = &generics->child[location];
+
+			if (! generic->initialized) {
+				zend_initialize_generic_type(generic, arg);
 			}
 
-			if (UNEXPECTED(!zend_check_type(&tparam->type, arg, zf->common.scope, false, false))) {
+			if (UNEXPECTED(!zend_check_type(&generic->type, arg, zf->common.scope, false, false))) {
 				zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
 				return 0;
 			}
 
 			return 1;
-		}
-
-		if (UNEXPECTED(!zend_check_type(&cur_arg_info->type, arg, zf->common.scope, false, false))) {
+		} else if (UNEXPECTED(!zend_check_type(&cur_arg_info->type, arg, zf->common.scope, false, false))) {
 			zend_verify_arg_error(zf, cur_arg_info, arg_num, arg);
 			return 0;
 		}
@@ -1283,22 +1293,6 @@ static zend_always_inline bool zend_verify_variadic_arg_type(
 		const zend_function *zf, const zend_arg_info *arg_info, uint32_t arg_num, zval *arg)
 {
 	ZEND_ASSERT(ZEND_TYPE_IS_SET(arg_info->type));
-
-	zend_generic* generic = arg_info->generic;
-
-	if (UNEXPECTED(generic)) {
-		if (!generic->initialized) {
-			zend_initialize_generic_type(generic, arg);
-			return 1;
-		}
-
-		if (UNEXPECTED(!zend_check_type(&generic->type, arg, zf->common.scope, false, false))) {
-			zend_verify_arg_error(zf, arg_info, arg_num, arg);
-			return 0;
-		}
-
-		return 1;
-	}
 
 	if (UNEXPECTED(!zend_check_type(&arg_info->type, arg, zf->common.scope, false, false))) {
 		zend_verify_arg_error(zf, arg_info, arg_num, arg);
@@ -5183,10 +5177,6 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 		called_scope = NULL;
 	}
 
-	if (UNEXPECTED(fbc->type == ZEND_USER_FUNCTION && fbc->op_array.generic_params)) {
-		zend_de_initialize_generics_list(fbc->op_array.generic_params);
-	}
-
 	return zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_DYNAMIC,
 		fbc, num_args, called_scope);
 }
@@ -5229,10 +5219,6 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_object(zend_o
 
 	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 		init_func_run_time_cache(&fbc->op_array);
-	}
-
-	if (UNEXPECTED(fbc->type == ZEND_USER_FUNCTION && fbc->op_array.generic_params)) {
-		zend_de_initialize_generics_list(fbc->op_array.generic_params);
 	}
 
 	return zend_vm_stack_push_call_frame(call_info,
@@ -5322,10 +5308,6 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_array(zend_ar
 
 	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 		init_func_run_time_cache(&fbc->op_array);
-	}
-
-	if (UNEXPECTED(fbc->type == ZEND_USER_FUNCTION && fbc->op_array.generic_params)) {
-		zend_de_initialize_generics_list(fbc->op_array.generic_params);
 	}
 
 	return zend_vm_stack_push_call_frame(call_info,

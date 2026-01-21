@@ -509,7 +509,6 @@ typedef struct _zend_internal_arg_info {
 typedef struct _zend_arg_info {
 	zend_string *name;
 	zend_type type;
-	zend_generic *generic;
 	zend_string *default_value;
 } zend_arg_info;
 
@@ -570,7 +569,7 @@ struct _zend_op_array {
 	/* Functions that are declared dynamically are stored here and
 	 * referenced by index from opcodes. */
 	zend_op_array **dynamic_func_defs;
-	zend_generic_list *generic_params;
+	HashTable *generic_params;
 
 	void *reserved[ZEND_MAX_RESERVED_RESOURCES];
 };
@@ -648,6 +647,7 @@ struct _zend_execute_data {
 	zend_array          *symbol_table;
 	void               **run_time_cache;   /* cache op_array->run_time_cache */
 	zend_array          *extra_named_params;
+	zend_generic_list   *generics;
 };
 
 #define ZEND_CALL_HAS_THIS           IS_OBJECT_EX
