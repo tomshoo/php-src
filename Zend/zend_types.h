@@ -160,7 +160,7 @@ typedef struct {
 	(((t).type_mask & _ZEND_TYPE_MASK) != 0)
 
 #define ZEND_TYPE_IS_GENERIC(t) \
-	(((t).type_mask & _ZEND_TYPE_IS_GENERIC) != 0)
+	(((t).generics_mask & _ZEND_TYPE_IS_GENERIC) != 0)
 
 /* If a type is complex it means it's either a list with a union or intersection,
  * or the void pointer is a class name */

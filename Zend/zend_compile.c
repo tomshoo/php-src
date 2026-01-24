@@ -8691,14 +8691,14 @@ static zend_op_array *zend_compile_func_decl_ex(
 	closure_info info;
 	zend_ast_list *generics = NULL;
 
-	if (template_ast) {
-		generics = zend_ast_get_list(template_ast);
-	}
-
 	init_op_array(op_array, ZEND_USER_FUNCTION, INITIAL_OP_ARRAY_SIZE);
 
-	ALLOC_HASHTABLE(op_array->generic_params);
-	zend_hash_init(op_array->generic_params, generics ? generics->children : 0, NULL, ZVAL_PTR_DTOR, 0);
+	if (template_ast) {
+		generics = zend_ast_get_list(template_ast);
+
+		ALLOC_HASHTABLE(op_array->generic_params);
+		zend_hash_init(op_array->generic_params, generics->children, NULL, ZVAL_PTR_DTOR, 1);
+	}
 
 	if (generics) {
 		if (generics->children > ZEND_TYPE_GENERIC_LOCATION_MASK) {

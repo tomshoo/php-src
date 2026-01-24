@@ -4061,10 +4061,6 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 
-	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
-		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
-	}
-
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -4181,10 +4177,6 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 	call = _zend_vm_stack_push_call_frame_ex(
 		opline->op1.num, ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
-
-	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
-		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
-	}
 
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
@@ -7701,6 +7693,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_USER_CAL
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -10404,6 +10397,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_USER_CAL
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -13010,6 +13004,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_USER_CAL
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -59871,10 +59866,6 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 
-	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
-		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
-	}
-
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -59991,10 +59982,6 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 	call = _zend_vm_stack_push_call_frame_ex(
 		opline->op1.num, ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
-
-	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
-		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
-	}
 
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
@@ -63511,6 +63498,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_USER_CALL_SPE
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -66214,6 +66202,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_USER_CALL_SPE
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -68718,6 +68707,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_USER_CALL_SPE
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 

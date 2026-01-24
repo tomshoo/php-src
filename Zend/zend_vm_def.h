@@ -3893,10 +3893,6 @@ ZEND_VM_HOT_HANDLER(59, ZEND_INIT_FCALL_BY_NAME, ANY, CONST, NUM|CACHE_SLOT)
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 
-	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
-		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
-	}
-
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -4022,6 +4018,7 @@ ZEND_VM_HANDLER(118, ZEND_INIT_USER_CALL, CONST, CONST|TMPVAR|CV, NUM)
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		func, opline->extended_value, object_or_called_scope);
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -4084,10 +4081,6 @@ ZEND_VM_HOT_HANDLER(61, ZEND_INIT_FCALL, NUM, CONST, NUM|CACHE_SLOT)
 	call = _zend_vm_stack_push_call_frame_ex(
 		opline->op1.num, ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
-
-	if (fbc->common.type == ZEND_USER_FUNCTION && fbc->op_array.generic_params) {
-		call->generics = zend_create_generic_list(zend_hash_num_elements(fbc->op_array.generic_params), 0);
-	}
 
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
